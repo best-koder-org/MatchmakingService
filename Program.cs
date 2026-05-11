@@ -187,6 +187,10 @@ builder.Services.AddScoped<MatchmakingService.Strategies.DailyPickStrategy>();
 // Phase 14.5: Background scoring service
 builder.Services.AddHostedService<MatchmakingService.Services.Background.ScoreRefreshBackgroundService>();
 builder.Services.AddHostedService<MatchmakingService.Services.Background.DailyPickGenerationService>();
+// T524 (spec 005): Pre-compute pairwise compatibility scores for users who have answered questions
+builder.Services.Configure<MatchmakingService.Services.Background.CompatibilityPrecomputeOptions>(
+    builder.Configuration.GetSection(MatchmakingService.Services.Background.CompatibilityPrecomputeOptions.SectionName));
+builder.Services.AddHostedService<MatchmakingService.Services.Background.CompatibilityPrecomputeService>();
 builder.Services.AddScoped<MatchmakingService.Services.DesirabilityCalculator>();
 builder.Services.AddScoped<MatchmakingService.Services.ICompatibilityScorer, MatchmakingService.Services.CompatibilityScorer>();
 builder.Services.AddScoped<MatchmakingService.Services.IMatchInsightService, MatchmakingService.Services.MatchInsightService>();
