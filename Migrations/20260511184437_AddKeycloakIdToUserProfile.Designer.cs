@@ -4,6 +4,7 @@ using MatchmakingService.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace MatchmakingService.Migrations
 {
     [DbContext(typeof(MatchmakingDbContext))]
-    partial class MatchmakingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260511184437_AddKeycloakIdToUserProfile")]
+    partial class AddKeycloakIdToUserProfile
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

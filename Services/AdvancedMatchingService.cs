@@ -25,6 +25,7 @@ namespace MatchmakingService.Services
         private readonly IOptionsMonitor<ScoringConfiguration> _scoringConfig;
         private readonly ILogger<AdvancedMatchingService> _logger;
         private readonly IDailySuggestionTracker _suggestionTracker;
+        private readonly ICompatibilityScorer? _compatibilityScorer;
 
         public AdvancedMatchingService(
             MatchmakingDbContext context,
@@ -33,7 +34,8 @@ namespace MatchmakingService.Services
             ISwipeServiceClient swipeServiceClient,
             IOptionsMonitor<ScoringConfiguration> scoringConfig,
             ILogger<AdvancedMatchingService> logger,
-            IDailySuggestionTracker suggestionTracker)
+            IDailySuggestionTracker suggestionTracker,
+            ICompatibilityScorer? compatibilityScorer = null)
         {
             _context = context;
             _userServiceClient = userServiceClient;
@@ -42,6 +44,7 @@ namespace MatchmakingService.Services
             _scoringConfig = scoringConfig;
             _logger = logger;
             _suggestionTracker = suggestionTracker;
+            _compatibilityScorer = compatibilityScorer;
         }
 
         public async Task<List<MatchSuggestionResponse>> FindMatchesAsync(FindMatchesRequest request)
@@ -170,6 +173,42 @@ namespace MatchmakingService.Services
                              userProfile.LifestyleWeight + activityWeight;
 
             var overallScore = Math.Min(100, weightedScore / totalWeight);
+
+            // T530 (spec 005): Blend pairwise compatibility (from question answers) into the
+            // overall score. Fall back gracefully when either user has no answers or no
+            // shared questions — CompatibilityScorer returns a Neutral result in that case
+            // and we leave the legacy score unchanged so onboarded users with answers can
+            // rank higher than users without breaking matching for everyone else.
+            var compatWeight = config.CompatibilityWeight;
+            if (_compatibilityScorer != null
+                && compatWeight > 0
+                && !string.IsNullOrWhiteSpace(userProfile.KeycloakId)
+                && !string.IsNullOrWhiteSpace(targetProfile.KeycloakId))
+            {
+                try
+                {
+                    var compat = await _compatibilityScorer.ScoreAsync(
+                        userProfile.KeycloakId!, targetProfile.KeycloakId!);
+
+                    if (compat.SharedAnswerCount > 0)
+                    {
+                        // Blend: final = legacy * (1 - w) + compat * w
+                        overallScore = Math.Min(100,
+                            (overallScore * (1.0 - compatWeight)) + (compat.OverallScore * compatWeight));
+
+                        _logger.LogDebug(
+                            "Compatibility blend for {UserId}↔{TargetUserId}: legacy={Legacy:F1} compat={Compat:F1} w={Weight:F2} final={Final:F1} shared={Shared}",
+                            userId, targetUserId, weightedScore / totalWeight, compat.OverallScore, compatWeight, overallScore, compat.SharedAnswerCount);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Compatibility is a soft input — never let it break candidate scoring.
+                    _logger.LogWarning(ex,
+                        "Compatibility scoring failed for {UserId}↔{TargetUserId}, using legacy score only",
+                        userId, targetUserId);
+                }
+            }
 
             // Cache the score
             await CacheMatchScore(userId, targetUserId, overallScore, locationScore, ageScore,

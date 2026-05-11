@@ -10,6 +10,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using System.Net;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace MatchmakingService.Tests.Controllers;
 
@@ -34,6 +38,14 @@ public class ProfilesControllerTests : IDisposable
         _strategyMock.Setup(x => x.Name).Returns("Live");
 
         _httpClientFactoryMock = new Mock<IHttpClientFactory>();
+        // Stub: return an HttpClient whose handler always responds 404 so legacy fallback
+        // and profile enrichment fail cleanly with empty results (no NRE on null client).
+        _httpClientFactoryMock
+            .Setup(f => f.CreateClient(It.IsAny<string>()))
+            .Returns(() => new HttpClient(new StubHttpHandler(HttpStatusCode.NotFound))
+            {
+                BaseAddress = new Uri("http://stub.local")
+            });
     }
 
     public void Dispose()
@@ -78,7 +90,8 @@ public class ProfilesControllerTests : IDisposable
             resolver,
             _httpClientFactoryMock.Object,
             config,
-            NullLogger<ProfilesController>.Instance);
+            NullLogger<ProfilesController>.Instance,
+            _context);
 
         // Set up HttpContext with headers
         var httpContext = new DefaultHttpContext();
@@ -328,5 +341,13 @@ public class ProfilesControllerTests : IDisposable
             _optionsMock.Object,
             scoringConfig.Object,
             NullLogger<PreComputedStrategy>.Instance);
+    }
+
+    private sealed class StubHttpHandler : HttpMessageHandler
+    {
+        private readonly HttpStatusCode _status;
+        public StubHttpHandler(HttpStatusCode status) => _status = status;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(_status) { Content = new StringContent("") });
     }
 }

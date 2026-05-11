@@ -1,3 +1,5 @@
+using MatchmakingService.Data;
+using Microsoft.EntityFrameworkCore;
 using MatchmakingService.Models;
 using MatchmakingService.Strategies;
 using Microsoft.AspNetCore.Mvc;
@@ -13,17 +15,20 @@ namespace MatchmakingService.Controllers
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
         private readonly ILogger<ProfilesController> _logger;
+        private readonly MatchmakingDbContext _db;
 
         public ProfilesController(
             StrategyResolver strategyResolver,
             IHttpClientFactory httpClientFactory,
             IConfiguration configuration,
-            ILogger<ProfilesController> logger)
+            ILogger<ProfilesController> logger,
+            MatchmakingDbContext db)
         {
             _strategyResolver = strategyResolver;
             _httpClientFactory = httpClientFactory;
             _configuration = configuration;
             _logger = logger;
+            _db = db;
         }
 
         /// <summary>
@@ -65,21 +70,22 @@ namespace MatchmakingService.Controllers
                 var resolvedStrategy = _strategyResolver.Resolve(strategy);
                 var result = await resolvedStrategy.GetCandidatesAsync(userIdInt, request);
 
-                // Map ScoredCandidate → JSON shape matching Flutter MatchCandidate.fromJson
-                var response = result.Candidates.Select(c => MapToFlutterShape(c)).ToList();
+                // If strategy returns empty, fall back to legacy UserService demo search
+                if (result.Candidates.Count == 0)
+                {
+                    _logger.LogWarning("Strategy returned 0 candidates for user {UserId}, trying legacy fallback", userId);
+                    return await GetProfilesLegacy(userId);
+                }
+
+                // Enrich scored candidates with full profile data from UserService
+                var enrichment = await FetchUserProfilesAsync(result.Candidates.Select(c => c.Profile.UserId).ToList());
+
+                var response = result.Candidates.Select(c => MapToFlutterShape(c, enrichment)).ToList();
 
                 _logger.LogInformation(
                     "Returning {Count} candidates for user {UserId} via {Strategy} in {Ms}ms",
                     response.Count, userId, result.StrategyUsed,
                     result.ExecutionTime.TotalMilliseconds);
-
-                // If strategy returns empty (e.g. no profiles synced to matchmaking DB),
-                // fall back to legacy UserService demo search
-                if (response.Count == 0)
-                {
-                    _logger.LogWarning("Strategy returned 0 candidates for user {UserId}, trying legacy fallback", userId);
-                    return await GetProfilesLegacy(userId);
-                }
 
                 return Ok(response);
             }
@@ -91,21 +97,72 @@ namespace MatchmakingService.Controllers
         }
 
         /// <summary>
-        /// Maps a ScoredCandidate to the JSON shape Flutter expects.
+        /// Fetch full profile data from UserService for a list of user IDs.
+        /// Returns a dictionary of userId → profile JSON for enrichment.
+        /// </summary>
+        private async Task<Dictionary<int, JsonElement>> FetchUserProfilesAsync(List<int> userIds)
+        {
+            var profiles = new Dictionary<int, JsonElement>();
+            var gatewayUrl = _configuration["Gateway:BaseUrl"] ?? "http://yarp:80";
+            var client = _httpClientFactory.CreateClient();
+
+            // Forward the caller's auth token
+            var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(authHeader))
+                client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", authHeader);
+
+            // Fetch profiles in parallel (max ~20 candidates)
+            var tasks = userIds.Select(async id =>
+            {
+                try
+                {
+                    var resp = await client.GetAsync($"{gatewayUrl}/api/userprofiles/{id}");
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        var json = await resp.Content.ReadAsStringAsync();
+                        var doc = JsonDocument.Parse(json);
+                        // UserService wraps in { success: true, data: { ... } }
+                        if (doc.RootElement.TryGetProperty("data", out var data))
+                            return (id, data: (JsonElement?)data.Clone());
+                        return (id, data: (JsonElement?)doc.RootElement.Clone());
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to fetch profile enrichment for user {UserId}", id);
+                }
+                return (id, data: (JsonElement?)null);
+            });
+
+            var results = await Task.WhenAll(tasks);
+            foreach (var (id, data) in results)
+            {
+                if (data.HasValue)
+                    profiles[id] = data.Value;
+            }
+
+            _logger.LogDebug("Enriched {Count}/{Total} candidate profiles from UserService", profiles.Count, userIds.Count);
+            return profiles;
+        }
+
+        /// <summary>
+        /// Maps a ScoredCandidate to the JSON shape Flutter expects, enriched with UserService data.
         /// Flutter MatchCandidate.fromJson reads: userId, displayName, age, bio,
         /// city, photoUrl, photoUrls, compatibility/compatibilityScore, interests, etc.
         /// </summary>
-        private static object MapToFlutterShape(ScoredCandidate scored)
+        private static object MapToFlutterShape(ScoredCandidate scored, Dictionary<int, JsonElement> enrichment)
         {
             var p = scored.Profile;
+            enrichment.TryGetValue(p.UserId, out var userProfile);
+
             return new
             {
                 userId = p.UserId,
                 id = p.UserId,
-                displayName = (string?)null ?? $"User {p.UserId}",
-                name = (string?)null ?? $"User {p.UserId}",
+                displayName = GetStringProp(userProfile, "name") ?? $"User {p.UserId}",
+                name = GetStringProp(userProfile, "name") ?? $"User {p.UserId}",
                 age = p.Age,
-                bio = "",
+                bio = GetStringProp(userProfile, "bio") ?? "",
                 city = p.City ?? "",
                 gender = p.Gender ?? "",
                 compatibility = scored.FinalScore,
@@ -114,18 +171,59 @@ namespace MatchmakingService.Controllers
                 desirabilityScore = scored.DesirabilityScore,
                 finalScore = scored.FinalScore,
                 strategyUsed = scored.StrategyUsed,
-                interests = ParseInterests(p.Interests),
+                interests = GetInterests(userProfile, p.Interests),
                 isVerified = p.IsVerified,
-                // Empty defaults for fields we don't have at matchmaking level
-                photoUrl = (string?)null,
-                photoUrls = Array.Empty<string>(),
+                photoUrl = GetStringProp(userProfile, "primaryPhotoUrl"),
+                photoUrls = GetStringArrayProp(userProfile, "photoUrls"),
                 prompts = Array.Empty<object>(),
                 voicePromptUrl = (string?)null,
-                occupation = (string?)null,
-                education = (string?)null,
-                height = (int?)null,
+                occupation = GetStringProp(userProfile, "occupation"),
+                education = GetStringProp(userProfile, "education"),
+                height = GetIntProp(userProfile, "height"),
                 distanceKm = (double?)null,
             };
+        }
+
+        private static string? GetStringProp(JsonElement? element, string prop)
+        {
+            if (element == null) return null;
+            if (element.Value.TryGetProperty(prop, out var val) && val.ValueKind == JsonValueKind.String)
+            {
+                var s = val.GetString();
+                return string.IsNullOrEmpty(s) ? null : s;
+            }
+            return null;
+        }
+
+        private static int? GetIntProp(JsonElement? element, string prop)
+        {
+            if (element == null) return null;
+            if (element.Value.TryGetProperty(prop, out var val) && val.ValueKind == JsonValueKind.Number)
+                return val.GetInt32();
+            return null;
+        }
+
+        private static string[] GetStringArrayProp(JsonElement? element, string prop)
+        {
+            if (element == null) return Array.Empty<string>();
+            if (element.Value.TryGetProperty(prop, out var val) && val.ValueKind == JsonValueKind.Array)
+                return val.EnumerateArray()
+                    .Where(e => e.ValueKind == JsonValueKind.String)
+                    .Select(e => e.GetString()!)
+                    .ToArray();
+            return Array.Empty<string>();
+        }
+
+        private static List<string> GetInterests(JsonElement? userProfile, string? matchmakingInterests)
+        {
+            // Prefer UserService interests (richer data)
+            if (userProfile != null)
+            {
+                var arr = GetStringArrayProp(userProfile, "interests");
+                if (arr.Length > 0) return arr.ToList();
+            }
+            // Fall back to matchmaking DB interests
+            return ParseInterests(matchmakingInterests);
         }
 
         private static List<string> ParseInterests(string? interests)
@@ -197,6 +295,22 @@ namespace MatchmakingService.Controllers
                 else if (doc.RootElement.TryGetProperty("results", out profileArray))
                     found = true;
 
+                // Bot filtering: if requester is a bot, exclude other bots from results
+                var botUserIds = new HashSet<int>();
+                if (int.TryParse(userId, out var legacyUid))
+                {
+                    var requester = await _db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == legacyUid);
+                    if (requester?.IsBot == true)
+                    {
+                        botUserIds = (await _db.UserProfiles.AsNoTracking()
+                            .Where(u => u.IsBot && u.UserId != legacyUid)
+                            .Select(u => u.UserId)
+                            .ToListAsync())
+                            .ToHashSet();
+                        _logger.LogInformation("Bot user {UserId} — filtering out {Count} other bot IDs from legacy results", userId, botUserIds.Count);
+                    }
+                }
+
                 if (found)
                 {
                     foreach (var profile in profileArray.EnumerateArray())
@@ -204,6 +318,11 @@ namespace MatchmakingService.Controllers
                         if (myProfileId.HasValue &&
                             profile.TryGetProperty("id", out var idProp) &&
                             idProp.GetInt32() == myProfileId.Value)
+                            continue;
+
+                        // Skip other bots if requester is a bot
+                        if (botUserIds.Count > 0 && profile.TryGetProperty("id", out var botIdProp) &&
+                            botUserIds.Contains(botIdProp.GetInt32()))
                             continue;
 
                         var obj = JsonSerializer.Deserialize<object>(profile.GetRawText());

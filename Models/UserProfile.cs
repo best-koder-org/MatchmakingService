@@ -7,6 +7,14 @@ namespace MatchmakingService.Models
     {
         public int Id { get; set; }
         public int UserId { get; set; } // Foreign key to User service
+
+        /// <summary>
+        /// Keycloak subject ID — links this profile to compatibility answers (spec 005).
+        /// Nullable for backward compatibility with rows synced before T530.
+        /// </summary>
+        [System.ComponentModel.DataAnnotations.StringLength(50)]
+        public string? KeycloakId { get; set; }
+
         public string Gender { get; set; } = string.Empty;
         public int Age { get; set; }
         public double Latitude { get; set; }

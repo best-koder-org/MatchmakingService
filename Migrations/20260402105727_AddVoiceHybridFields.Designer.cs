@@ -4,6 +4,7 @@ using MatchmakingService.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace MatchmakingService.Migrations
 {
     [DbContext(typeof(MatchmakingDbContext))]
-    partial class MatchmakingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260402105727_AddVoiceHybridFields")]
+    partial class AddVoiceHybridFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -80,65 +83,6 @@ namespace MatchmakingService.Migrations
                         .HasDatabaseName("IX_CompatQ_SortOrder");
 
                     b.ToTable("compatibility_questions", (string)null);
-                });
-
-            modelBuilder.Entity("MatchmakingService.Models.CompatibilityScore", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<double>("AttachmentScore")
-                        .HasColumnType("double");
-
-                    b.Property<DateTime>("CalculatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("FrictionPointsJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("KeycloakId1")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<string>("KeycloakId2")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
-                    b.Property<double>("LifestyleScore")
-                        .HasColumnType("double");
-
-                    b.Property<double>("OverallScore")
-                        .HasColumnType("double");
-
-                    b.Property<double>("PersonalityScore")
-                        .HasColumnType("double");
-
-                    b.Property<int>("SharedAnswerCount")
-                        .HasColumnType("int");
-
-                    b.Property<string>("TopReasonsJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<double>("ValuesScore")
-                        .HasColumnType("double");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CalculatedAt")
-                        .HasDatabaseName("IX_CompatScore_CalculatedAt");
-
-                    b.HasIndex("KeycloakId1", "KeycloakId2")
-                        .IsUnique()
-                        .HasDatabaseName("IX_CompatScore_Pair");
-
-                    b.ToTable("compatibility_scores", (string)null);
                 });
 
             modelBuilder.Entity("MatchmakingService.Models.DailyPick", b =>
@@ -544,10 +488,6 @@ namespace MatchmakingService.Migrations
                     b.Property<bool>("IsVerified")
                         .HasColumnType("tinyint(1)");
 
-                    b.Property<string>("KeycloakId")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
                     b.Property<DateTime>("LastActiveAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime(6)")
@@ -615,9 +555,6 @@ namespace MatchmakingService.Migrations
 
                     b.HasIndex("Gender")
                         .HasDatabaseName("IX_UserProfile_Gender");
-
-                    b.HasIndex("KeycloakId")
-                        .HasDatabaseName("IX_UserProfile_KeycloakId");
 
                     b.HasIndex("UserId")
                         .IsUnique()

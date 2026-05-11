@@ -4,6 +4,7 @@ using MatchmakingService.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace MatchmakingService.Migrations
 {
     [DbContext(typeof(MatchmakingDbContext))]
-    partial class MatchmakingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260430060600_AddCompatibilityScores")]
+    partial class AddCompatibilityScores
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -544,10 +547,6 @@ namespace MatchmakingService.Migrations
                     b.Property<bool>("IsVerified")
                         .HasColumnType("tinyint(1)");
 
-                    b.Property<string>("KeycloakId")
-                        .HasMaxLength(50)
-                        .HasColumnType("varchar(50)");
-
                     b.Property<DateTime>("LastActiveAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime(6)")
@@ -615,9 +614,6 @@ namespace MatchmakingService.Migrations
 
                     b.HasIndex("Gender")
                         .HasDatabaseName("IX_UserProfile_Gender");
-
-                    b.HasIndex("KeycloakId")
-                        .HasDatabaseName("IX_UserProfile_KeycloakId");
 
                     b.HasIndex("UserId")
                         .IsUnique()

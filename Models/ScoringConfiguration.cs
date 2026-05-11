@@ -104,5 +104,13 @@ namespace MatchmakingService.Models
         /// Recommendation: 7 - Weekly active users get good scores
         /// </summary>
         public double ActivityScoreHalfLifeDays { get; set; } = 7.0;
+
+        /// <summary>
+        /// T531 (spec 005): Weight of pairwise compatibility (from question answers)
+        /// blended into the final score. Range 0.0–1.0. Default 0.30 means 30% of the
+        /// final score comes from compatibility, 70% from the legacy weighted factors.
+        /// Set to 0 to disable compatibility blending entirely.
+        /// </summary>
+        public double CompatibilityWeight { get; set; } = 0.30;
     }
 }
