@@ -18,6 +18,7 @@ namespace MatchmakingService.Data
         public DbSet<CompatibilityQuestion> CompatibilityQuestions { get; set; }
         public DbSet<UserQuestionAnswer> UserQuestionAnswers { get; set; }
         public DbSet<CompatibilityScore> CompatibilityScores { get; set; }
+        public DbSet<MatchInsight> MatchInsights { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -95,6 +96,16 @@ namespace MatchmakingService.Data
             modelBuilder.Entity<UserProfile>()
                 .HasIndex(up => up.KeycloakId)
                 .HasDatabaseName("IX_UserProfile_KeycloakId");
+
+            // T533 (spec 005): MatchInsight indexes — unique per (match, viewer)
+            modelBuilder.Entity<MatchInsight>()
+                .HasIndex(mi => new { mi.MatchId, mi.ForKeycloakId })
+                .IsUnique()
+                .HasDatabaseName("IX_MatchInsight_MatchUser");
+
+            modelBuilder.Entity<MatchInsight>()
+                .HasIndex(mi => mi.ForKeycloakId)
+                .HasDatabaseName("IX_MatchInsight_ForKeycloakId");
 
             modelBuilder.Entity<UserProfile>()
                 .Property(up => up.DesirabilityScore)
