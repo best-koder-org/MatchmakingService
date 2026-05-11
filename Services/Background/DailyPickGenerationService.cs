@@ -22,6 +22,14 @@ namespace MatchmakingService.Services.Background;
 ///   - Under 1K users: generate all at once
 ///   - 1K to 10K users: batch with 100ms delays
 ///   - Over 10K users: batch with 500ms delays + parallel batches
+///
+/// T535 (spec 005): Compatibility blending is inherited automatically.
+/// LiveScoringStrategy → AdvancedMatchingService.CalculateCompatibilityScoreAsync
+/// already weights pairwise CompatibilityScorer results into the score
+/// (default 30%, configurable via ScoringConfiguration.CompatibilityWeight).
+/// Users with answered Big Five / attachment / values questions therefore
+/// rank higher in daily picks; users without answers fall back to the
+/// legacy weighted score without breaking generation.
 /// </summary>
 public class DailyPickGenerationService : BackgroundService
 {
